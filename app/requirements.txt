@@ -10,3 +10,4 @@ uvicorn==0.29.0
 dotenv==1.0.1
 pinecone==5.4.0
 google-cloud-storage==2.18.2
+# torchvision==0.20.1

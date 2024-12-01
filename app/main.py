@@ -8,8 +8,8 @@ from fastapi.responses import HTMLResponse
 from loguru import logger
 from google.cloud import storage
 import uuid
-import os
 import uvicorn
+from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 
 INDEX_NAME = Config.INDEX_NAME
@@ -44,6 +44,25 @@ async def push_image(file: UploadFile = File(...)):
     try:
         image_bytes = await file.read()
         image = Image.open(BytesIO(image_bytes)).convert("RGB")
+        # check 
+        feature = model.get_features([image]).flatten().tolist()
+        # match_ids = search(index, feature, top_k=Config.TOP_K)
+        # if match_ids:
+        #     match_vectors = []
+        #     for match_id in match_ids:
+        #         logger.info(f"Fetching match ID: {match_id}")
+        #         match_item = index.fetch(ids=[match_id])
+        #         if match_item and match_id in match_item:
+        #             match_vectors.append(np.array(match_item[match_id]['values']))
+        #         else:
+        #             logger.warning(f"Match ID {match_id} not found in fetch response.")
+
+        #     similarities = cosine_similarity([feature], match_vectors)
+        #     for i, similarity in enumerate(similarities[0]):
+        #         if similarity > Config.SIMILARITY_THRESHOLD:
+        #             logger.info(f"Image already exists with ID: {match_ids[i]} and similarity: {similarity}")
+        #             return {"message": "Image already exists!", "file_id": match_ids[i], "similarity": similarity}
+
         # generate a unique id for the image
         unique_id = str(uuid.uuid4())
         file_extension = file.filename.split(".")[-1]
@@ -61,7 +80,6 @@ async def push_image(file: UploadFile = File(...)):
         else:
             logger.warning(f"Image already exists: {gcs_file_path}")
 
-        feature = model.get_features([image]).reshape(1, -1)
         index.upsert([(
             unique_id,
             feature,

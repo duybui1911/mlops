@@ -9,6 +9,9 @@ PINECONE_APIKEY = os.getenv("PINECONE_APIKEY")
 
 def get_index(index_name):
     pc = Pinecone(api_key=PINECONE_APIKEY)
+    if index_name in pc.list_indexes().names():
+        pc.delete_index(index_name)
+        logger.info(f"Deleted existing Pinecone index: {index_name}")
     if index_name not in pc.list_indexes().names():
         pc.create_index(
             name=index_name,
