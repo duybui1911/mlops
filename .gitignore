@@ -1,0 +1,9 @@
+# ansible/secrets/
+ansible/*
+terraform/*
+app/.env
+app/dynamic-branch-441814-f1-45971c71ec3a.json
+app/gen_features.py
+app/data/*
+app/anhthe.jpg
+helm/*

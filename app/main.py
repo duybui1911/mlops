@@ -7,10 +7,10 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import HTMLResponse
 from loguru import logger
 from google.cloud import storage
+from google.oauth2 import service_account
 import uuid
-import uvicorn
-from sklearn.metrics.pairwise import cosine_similarity
-import numpy as np
+import time
+import datetime
 
 INDEX_NAME = Config.INDEX_NAME
 index = get_index(INDEX_NAME)
@@ -18,7 +18,12 @@ logger.info(f"Connect to index {INDEX_NAME} successfully")
 
 # Initialize GCS client
 GCS_BUCKET_NAME = Config.GCS_BUCKET_NAME
-storage_client = storage.Client()
+# GOOGLE_SERVICE_ACCOUNT = os.getenv("GOOGLE_SERVICE_ACCOUNT")
+# key_path = json.loads(GOOGLE_SERVICE_ACCOUNT)
+# credentials = service_account.Credentials.from_service_account_info(key_path)
+key_path = "dynamic-branch-441814-f1-45971c71ec3a.json"
+credentials = service_account.Credentials.from_service_account_file(key_path)
+storage_client = storage.Client(credentials=credentials)
 try:
     bucket = storage_client.get_bucket(GCS_BUCKET_NAME)
     logger.info(f"Connected to GCS bucket {GCS_BUCKET_NAME} successfully")
@@ -45,7 +50,7 @@ async def push_image(file: UploadFile = File(...)):
         image_bytes = await file.read()
         image = Image.open(BytesIO(image_bytes)).convert("RGB")
         # check 
-        feature = model.get_features([image]).flatten().tolist()
+        feature = model.get_features([image]).flatten().tolist() #reshape(1,-1)
         # match_ids = search(index, feature, top_k=Config.TOP_K)
         # if match_ids:
         #     match_vectors = []
@@ -56,7 +61,8 @@ async def push_image(file: UploadFile = File(...)):
         #             match_vectors.append(np.array(match_item[match_id]['values']))
         #         else:
         #             logger.warning(f"Match ID {match_id} not found in fetch response.")
-
+        #     match_vectors_np = np.array(match_vectors)
+        #     logger.info(f"Match vectors shape: {match_vectors_np.shape}")
         #     similarities = cosine_similarity([feature], match_vectors)
         #     for i, similarity in enumerate(similarities[0]):
         #         if similarity > Config.SIMILARITY_THRESHOLD:
@@ -95,30 +101,49 @@ async def push_image(file: UploadFile = File(...)):
 def health_check():
     return {"status": "OK!"}
 
-@app.post("/upload_image/")
-async def upload_image(file: UploadFile = File(...)):
+@app.post("/image_search/")
+async def image_search(file: UploadFile = File(...)):
     try:
+        logger.info('Started image search process')
         image_bytes = await file.read()
         image = Image.open(BytesIO(image_bytes)).convert("RGB")
-        return image
-    except Exception as e:
-        logger.error(f"Error opening image: {e}")
-        raise HTTPException(status_code=400, detail=f"Error opening image: {e}")
+        logger.info('Image successfully loaded and converted to RGB')
 
-@app.post("/find_image/")
-async def find_image(file: UploadFile = File(...)):
-    try:
-        image = await upload_image(file)
-        logger.info('Finding and displaying the similar images...')
-        feature = model.get_features([image]).reshape(1, -1)
+        feature = model.get_features([image]).flatten().tolist()
+        start_time = time.time()
         match_ids = search(index, feature, top_k=Config.TOP_K)
-        response = index.get_items(match_ids)
-        images_url = [response[match_id]["metadata"]["url"] for match_id in match_ids]
+        elapsed_time = time.time() - start_time
+        logger.info(f'Search completed in {elapsed_time:.4f} seconds')
+
+        response = index.fetch(ids=match_ids)
+        # logger.info(f"Fetch response: {response}")
+        images_url = []
+        for match_id in match_ids:
+            if match_id in response.get('vectors', {}):
+                metadata = response['vectors'][match_id].get("metadata", {})
+                gcs_path = metadata.get("gcs_path", "")
+                blob = bucket.blob(gcs_path)
+                signed_url = blob.generate_signed_url(
+                    version="v4",
+                    expiration=datetime.timedelta(hours=1),
+                    method="GET")
+                images_url.append(signed_url)
+                logger.info(f"Found URL for match ID {match_id}: {signed_url}")
+            else:
+                logger.warning(f"Match ID {match_id} not found in response.")
+        return images_url
+    except Exception as e:
+        logger.error(f"Error in image search process: {e}")
+        raise HTTPException(status_code=400, detail=f"Error in image search process: {e}")
+
+@app.post("/display_image/")
+async def display_image(file: UploadFile = File(...)):
+    try:
+        logger.info('Started image display process')
+        images_url = await image_search(file)
+        logger.info(f'Displaying {len(images_url)} similar images...')
         html_content = display_html(images_url)
         return HTMLResponse(content=html_content)
     except Exception as e:
-        logger.error(f"Error in finding image: {e}")
-        raise HTTPException(status_code=500, detail=f"Error in finding image: {e}")
-    
-if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8005, reload=False, workers=4)
+        logger.error(f"Error in displaying images: {e}")
+        raise HTTPException(status_code=500, detail=f"Error in displaying images: {e}")

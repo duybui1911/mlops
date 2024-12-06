@@ -1,11 +1,11 @@
-from transformers import AutoFeatureExtractor, ViTMSNModel
+from transformers import ViTImageProcessor, ViTMSNModel
 import torch
 from config import Config
 
 class VIT_MSN():
     def __init__(self, device):
         self.device = device if device else ('cuda' if torch.cuda.is_available() else 'cpu')
-        self.image_processing = AutoFeatureExtractor.from_pretrained(Config.MODEL_PATH)
+        self.image_processing = ViTImageProcessor.from_pretrained(Config.MODEL_PATH)
         self.model = ViTMSNModel.from_pretrained(Config.MODEL_PATH)
         if self.device == 'cuda':
             self.model.cuda()
