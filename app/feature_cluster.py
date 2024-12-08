@@ -56,15 +56,15 @@ class FeatureExtraction():
             images = []
             image_ids = []
             for payload in verified_request:
-                img_str = payload.image
-                img_shape = (payload.height, payload.width)
+                img_str = payload["image"]
+                img_shape = (payload["height"], payload["width"])
                 img_arr = np.frombuffer(
                     base64.decodebytes(img_str),
                     dtype=np.uint8
                 )
                 img_arr = img_arr.reshape(img_shape)
                 images.append(Image.fromarray(img_arr).convert("RGB"))
-                image_ids.append(payload.id)
+                image_ids.append(payload["id"])
 
             start_extract = time.time()
             features = self.extractor.get_features(images)
