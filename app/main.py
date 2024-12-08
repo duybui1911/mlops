@@ -11,7 +11,16 @@ from google.oauth2 import service_account
 import uuid
 import time
 import datetime
+import redis
+import base64
+import json
+import numpy as np
 
+db = redis.StrictRedis(
+    host=Config.REDIS_HOST,
+    port=Config.REDIS_PORT,
+    db=Config.REDIS_DB
+)
 INDEX_NAME = Config.INDEX_NAME
 index = get_index(INDEX_NAME)
 logger.info(f"Connect to index {INDEX_NAME} successfully")
@@ -109,11 +118,32 @@ async def image_search(file: UploadFile = File(...)):
         image = Image.open(BytesIO(image_bytes)).convert("RGB")
         logger.info('Image successfully loaded and converted to RGB')
 
-        feature = model.get_features([image]).flatten().tolist()
-        start_time = time.time()
-        match_ids = search(index, feature, top_k=Config.TOP_K)
-        elapsed_time = time.time() - start_time
-        logger.info(f'Search completed in {elapsed_time:.4f} seconds')
+        image_id = str(uuid.uuid4())
+        image_str = base64.b64encode(np.asarray(image)).decode("utf-8")
+        extract_object = {
+            "id": image_id,
+            "image": image_str,
+            "width": image.width,
+            "height": image.height
+        }
+        db.rpush(Config.REDIS_QUEUE, json.dumps(extract_object))
+
+        match_ids = []
+        t0 = time.time()
+        while True:
+            rq_time = time.time - t0
+            if rq_time > Config.REQUEST_TIMEOUT:
+                break
+            out = db.get(image_id)
+            if not out:
+                continue
+            feature = np.frombuffer(out, dtype=np.float32)
+
+            # feature = model.get_features([image]).flatten().tolist()
+            start_time = time.time()
+            match_ids = search(index, feature, top_k=Config.TOP_K)
+            elapsed_time = time.time() - start_time
+            logger.info(f'Search completed in {elapsed_time:.4f} seconds')
 
         response = index.fetch(ids=match_ids)
         # logger.info(f"Fetch response: {response}")

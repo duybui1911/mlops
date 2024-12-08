@@ -3,6 +3,8 @@ from pinecone import Pinecone, ServerlessSpec
 from loguru import logger
 from config import Config
 from dotenv import load_dotenv
+import redis
+
 load_dotenv()
 PINECONE_APIKEY = os.getenv("PINECONE_APIKEY")
 
@@ -61,3 +63,29 @@ def display_html(images_url):
         </html>
     """
     return html_content
+
+def multi_pop(r, q, n):
+    arr = []
+    count = 0
+    while True:
+        try:
+            p = r.pipeline()
+            p.multi()
+            for i in range(n):
+                p.lpop(q)
+            arr = p.execute()
+            return arr
+        except redis.ConnectionError as e:
+            print(e)
+            count += 1
+            logger.error("Connection failed in %s times" % count)
+            if count > 3:
+                raise
+            backoff = count * 5
+            logger.info('Retrying in {} seconds'.format(backoff))
+            time.sleep(backoff)
+            r = redis.StrictRedis(
+                host=cfgs.REDIS_HOST,
+                port=cfgs.REDIS_PORT,
+                db=cfgs.REDIS_DB
+            )
